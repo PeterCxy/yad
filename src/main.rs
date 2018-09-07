@@ -20,11 +20,15 @@ mod manager;
 use futures::Future;
 
 fn main() {
-    tokio::run(manager::DownloadManager::new(
-        std::env::args().skip(1).take(1).last().unwrap().parse().unwrap())
-            .and_then(|m| {
-                println!("{}", m.file_len);
-                Ok(())
-            })
-            .map_err(|_| ()))
+    let block_size = 512; // TODO: Make this configurable
+    let url = std::env::args().skip(1).take(1).last().unwrap();
+    println!("=> Retrieving information about url...");
+    tokio::run(manager::DownloadManager::new(url.parse().unwrap(), block_size)
+        .and_then(move |m| {
+            println!("=> File name: {}", m.file_name);
+            println!("=> File size: {} bytes", m.file_len);
+            println!("=> {} bytes block count: {}", block_size, m.block_count);
+            Ok(())
+        })
+        .map_err(|e| println!("=> fatal error: {:?}", e)));
 }
