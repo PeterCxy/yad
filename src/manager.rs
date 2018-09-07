@@ -24,6 +24,7 @@ pub struct DownloadManager {
 impl DownloadManager {
     pub fn new(url: Uri, block_size: usize) -> impl Future<Item = DownloadManager, Error = Error> {
         // Use HEAD request to find the metadata of the file
+        // TODO: Support header customization!
         hyper_client().request(Request::head(url.clone()).body(Body::empty()).unwrap())
             .chain_err(|| "Failed to fetch for file information: Server error.")
             .and_then(|r| {
