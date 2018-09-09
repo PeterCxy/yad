@@ -10,17 +10,20 @@ mod errors {
         foreign_links {
             HyperError(::hyper::Error);
             ToStrError(::hyper::header::ToStrError);
+            TokioIoError(::tokio::io::Error);
         }
     }
 }
 
+#[macro_use]
 mod util;
 mod manager;
+mod worker;
 
 use futures::Future;
 
 fn main() {
-    let block_size = 512; // TODO: Make this configurable
+    let block_size = 2048000; // TODO: Make this configurable
     let url = std::env::args().skip(1).take(1).last().unwrap();
     println!("=> Retrieving information about url...");
     tokio::run(manager::DownloadManager::new(url.parse().unwrap(), block_size)
@@ -28,7 +31,7 @@ fn main() {
             println!("=> File name: {}", m.file_name);
             println!("=> File size: {} bytes", m.file_len);
             println!("=> {} bytes block count: {}", block_size, m.block_count);
-            Ok(())
+            m.run(4)
         })
         .map_err(|e| println!("=> fatal error: {:?}", e)));
 }

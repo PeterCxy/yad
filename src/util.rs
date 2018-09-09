@@ -7,9 +7,31 @@ use std::error;
 
 pub fn hyper_client<B: Payload>() -> Client<HttpsConnector<client::HttpConnector>, B> {
     client::Builder::default()
+        .keep_alive(true)
         .build(HttpsConnector::new(4))
 }
 
+
+macro_rules! clone {
+    /*
+     * Simulate a closure that clones
+     * some environment variables and
+     * take ownership of them by default.
+     */
+    ($($n:ident),+; || $body:block) => (
+        {
+            $( let $n = $n.clone(); )+
+            move || { $body }
+        }
+    );
+    ($($n:ident),+; |$($p:pat),+| $body:block) => (
+        {
+            $( let $n = $n.clone(); )+
+            move |$($p),+| { $body }
+        }
+    );
+
+}
 
 // Glue code to make error-chain work with futures
 // Source: <https://github.com/alexcrichton/sccache/blob/master/src/errors.rs>
