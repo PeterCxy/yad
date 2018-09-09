@@ -214,6 +214,8 @@ impl DownloadManager {
         }
     }
 
+    // If there is no remaining blocks to download, and
+    // no block is currently being downloaded, then we are done.
     fn has_finished(&self) -> bool {
         self.blocks_pending.len() == 0 &&
             !self.blocks_state.contains(&BlockState::Downloading)
