@@ -102,8 +102,7 @@ impl DownloadManager {
         // Create the file first
         // TODO: Automatically create all directories
         // TODO: Add an option whether to erase if the file exists
-        fs::File::create(self.file_name.clone())
-            .chain_err(|| "Failed to create file")
+        create_file_with_len(&self.file_name, self.file_len as u64)
             .and_then(move |file| {
                 let mut send_chan = Vec::with_capacity(workers);
                 let (worker_send, recv_chan) = mpsc::channel(1024);

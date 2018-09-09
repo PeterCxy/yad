@@ -1,9 +1,11 @@
 use errors::*;
-use futures::{Future, Poll};
+use futures::{Async, Future, Poll};
+use futures::future::poll_fn;
 use hyper::{client, Client};
 use hyper::body::Payload;
 use hyper_rustls::HttpsConnector;
 use std::error;
+use tokio::fs;
 
 pub fn hyper_client<B: Payload>() -> Client<HttpsConnector<client::HttpConnector>, B> {
     client::Builder::default()
@@ -11,6 +13,31 @@ pub fn hyper_client<B: Payload>() -> Client<HttpsConnector<client::HttpConnector
         .build(HttpsConnector::new(4))
 }
 
+// Create a file with length
+// TODO: create all the paths leading to the file
+pub fn create_file_with_len(name: &str, len: u64) -> impl Future<Item = fs::File, Error = Error> {
+    use std::mem::replace;
+    fs::File::create(name.to_owned())
+        .chain_err(|| "Failed to create file")
+        .and_then(move |file| {
+            // Set the file length by using poll_fn
+            // since tokio_fs didn't implement this for us
+            // Wrap the file in an Option so that we can
+            // move out of it when we finish polling
+            let mut file = Some(file);
+            poll_fn(move || {
+                let result = file.as_mut().unwrap().poll_set_len(len);
+                match result {
+                    Err(e) => Err(e),
+                    Ok(result) => match result {
+                        Async::Ready(_) => Ok(Async::Ready(replace(&mut file, None).unwrap())),
+                        Async::NotReady => Ok(Async::NotReady)
+                    }
+                }
+            })
+            .chain_err(|| "Failed to allocate file")
+        })
+}
 
 macro_rules! clone {
     /*
