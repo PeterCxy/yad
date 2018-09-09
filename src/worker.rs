@@ -18,15 +18,15 @@ pub struct DownloadWorker {
     id: usize,
     url: Uri,
     client: Client<HttpsConnector<client::HttpConnector>, Body>,
-    block_size: usize,
-    file_len: usize,
+    block_size: u64,
+    file_len: u64,
     recv_chan: Option<mpsc::Receiver<WorkerMessage>>,
     send_chan: mpsc::Sender<WorkerMessage>
 }
 
 impl DownloadWorker {
     pub fn new(
-        id: usize, url: Uri, file_len: usize, block_size: usize,
+        id: usize, url: Uri, file_len: u64, block_size: u64,
         recv_chan: mpsc::Receiver<WorkerMessage>,
         send_chan: mpsc::Sender<WorkerMessage>
     ) -> DownloadWorker {
@@ -81,7 +81,7 @@ impl DownloadWorker {
     // and return a futrue that resolves when completes
     fn download_block(&self, block_id: usize) -> impl Future<Item = Vec<u8>, Error = WorkerError> {
         // Calculate the start & end position of the block
-        let block_start = self.block_size * block_id;
+        let block_start = self.block_size * block_id as u64;
         let mut block_end = block_start + self.block_size - 1;
 
         // If this is the last block, it might not be full-sized.

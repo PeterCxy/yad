@@ -39,16 +39,16 @@ impl<T> From<T> for DownloadManagerError where T: Into<Error> {
 #[derive(Debug)]
 pub struct DownloadManager {
     url: Uri,
-    pub file_len: usize,
+    pub file_len: u64,
     pub block_count: usize,
-    pub block_size: usize,
+    pub block_size: u64,
     pub file_name: String,
     blocks_state: Vec<BlockState>,
     blocks_pending: Vec<usize>
 }
 
 impl DownloadManager {
-    pub fn new(url: Uri, block_size: usize) -> impl Future<Item = DownloadManager, Error = Error> {
+    pub fn new(url: Uri, block_size: u64) -> impl Future<Item = DownloadManager, Error = Error> {
         // Use HEAD request to find the metadata of the file
         // TODO: Support header customization!
         hyper_client().request(Request::head(url.clone()).body(Body::empty()).unwrap())
@@ -66,12 +66,12 @@ impl DownloadManager {
             })
     }
 
-    fn initialize(url: Uri, len: usize, block_size: usize) -> DownloadManager {
+    fn initialize(url: Uri, len: u64, block_size: u64) -> DownloadManager {
         // Divide the file into blocks of block_size, rounded up to an integer
         // Therefore, the last block might or might not be a full block. This
         // has to be dealt with by the download worker.
-        let mut block_count = len / block_size;
-        if block_count * block_size < len {
+        let mut block_count = (len / block_size) as usize;
+        if block_count as u64 * block_size < len {
             block_count += 1;
         }
         
@@ -102,7 +102,7 @@ impl DownloadManager {
         // Create the file first
         // TODO: Automatically create all directories
         // TODO: Add an option whether to erase if the file exists
-        create_file_with_len(&self.file_name, self.file_len as u64)
+        create_file_with_len(&self.file_name, self.file_len)
             .and_then(move |file| {
                 let mut send_chan = Vec::with_capacity(workers);
                 let (worker_send, recv_chan) = mpsc::channel(1024);
@@ -193,7 +193,7 @@ impl DownloadManager {
 
     // Write a downloaded block to the file
     fn write_to_file(&self, file: fs::File, block_id: usize, bytes: Vec<u8>) -> impl Future<Item = fs::File, Error = Error> {
-        file.seek(SeekFrom::Start((self.block_size * block_id) as u64))
+        file.seek(SeekFrom::Start(self.block_size * block_id as u64))
             .and_then(move |(file, _)| io::write_all(file, bytes))
             .map(|(file, _)| file)
             .chain_err(|| "Error writing to file")
