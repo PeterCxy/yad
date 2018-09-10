@@ -2,7 +2,7 @@ use errors::*;
 use futures::{Future, Stream, Sink};
 use futures::future::{self, Either};
 use futures::sync::mpsc;
-use hyper::{Body, Request, Uri};
+use hyper::{Body, Request, StatusCode, Uri};
 use hyper::header;
 use percent_encoding::percent_decode;
 use std::io::SeekFrom;
@@ -54,11 +54,17 @@ impl DownloadManager {
         let auth_header = parse_url_basic_auth(&url);
         // Use HEAD request to find the metadata of the file
         // TODO: Support header customization!
-        hyper_client().request(Request::head(url.clone())
-            .add_auth_header(&auth_header).body(Body::empty()).unwrap())
+        hyper_client().request(Self::create_test_request(&url, &auth_header))
             .chain_err(|| "Failed to fetch for file information: Server error.")
             .and_then(|r| {
-                if r.status() != 200 {
+                if r.status() == StatusCode::OK {
+                    // We sent a request to the server with the Range header
+                    // but it only responded with OK, which means that it
+                    // does not support the Range header
+                    // in which case we just have nothing to do...
+                    Err("Server does not support Range request. Please use single-threaded downloader instead".into())
+                } else if r.status() != StatusCode::PARTIAL_CONTENT {
+                    // Not a successful response either
                     Err(format!("Failed server response: {}", r.status()).into())
                 } else {
                     r.headers().get(header::CONTENT_LENGTH)
@@ -74,6 +80,16 @@ impl DownloadManager {
             })
     }
 
+    // Create a dummy request to test if the server is available
+    // and if it supports the Range header
+    fn create_test_request(url: &Uri, auth_header: &Option<String>) -> Request<Body> {
+        // Use GET because some server might not respond correctly to HEAD
+        Request::get(url.clone())
+            .add_auth_header(&auth_header)
+            .header(header::RANGE, "bytes=0-")
+            .body(Body::empty()).unwrap()
+    }
+
     fn initialize(url: Uri, auth_header: Option<String>, len: u64, block_size: u64) -> DownloadManager {
         // Divide the file into blocks of block_size, rounded up to an integer
         // Therefore, the last block might or might not be a full block. This
@@ -82,7 +98,6 @@ impl DownloadManager {
         if block_count as u64 * block_size < len {
             block_count += 1;
         }
-        
 
         // Find the file name from the url
         // TODO: Make this configurable
