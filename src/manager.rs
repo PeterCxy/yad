@@ -44,15 +44,18 @@ pub struct DownloadManager {
     pub block_count: usize,
     pub block_size: u64,
     pub file_name: String,
+    auth_header: Option<String>,
     blocks_state: Vec<BlockState>,
     blocks_pending: Vec<usize>
 }
 
 impl DownloadManager {
     pub fn new(url: Uri, block_size: u64) -> impl Future<Item = DownloadManager, Error = Error> {
+        let auth_header = parse_url_basic_auth(&url);
         // Use HEAD request to find the metadata of the file
         // TODO: Support header customization!
-        hyper_client().request(Request::head(url.clone()).body(Body::empty()).unwrap())
+        hyper_client().request(Request::head(url.clone())
+            .add_auth_header(&auth_header).body(Body::empty()).unwrap())
             .chain_err(|| "Failed to fetch for file information: Server error.")
             .and_then(|r| {
                 r.headers().get(header::CONTENT_LENGTH)
@@ -63,11 +66,11 @@ impl DownloadManager {
                         .chain_err(|| "Failed to parse content length"))
             })
             .map(move |len| {
-                Self::initialize(url, len, block_size)
+                Self::initialize(url, auth_header, len, block_size)
             })
     }
 
-    fn initialize(url: Uri, len: u64, block_size: u64) -> DownloadManager {
+    fn initialize(url: Uri, auth_header: Option<String>, len: u64, block_size: u64) -> DownloadManager {
         // Divide the file into blocks of block_size, rounded up to an integer
         // Therefore, the last block might or might not be a full block. This
         // has to be dealt with by the download worker.
@@ -90,6 +93,7 @@ impl DownloadManager {
 
         DownloadManager {
             url,
+            auth_header,
             file_len: len,
             file_name,
             block_count,
@@ -110,7 +114,7 @@ impl DownloadManager {
                 for id in 0..workers {
                     let (tx1, worker_recv) = mpsc::channel(1024);
                     DownloadWorker::new(
-                        id, self.url.clone(),
+                        id, self.url.clone(), self.auth_header.clone(),
                         self.file_len, self.block_size, worker_recv, worker_send.clone()
                     ).fork_run();
                     send_chan.push(tx1);

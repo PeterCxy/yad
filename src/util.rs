@@ -1,7 +1,9 @@
+use base64;
 use errors::*;
 use futures::{Async, Future, Poll};
 use futures::future::poll_fn;
-use hyper::{client, Client};
+use http::request::Builder as ReqBuilder;
+use hyper::{client, Client, header, Uri};
 use hyper::body::Payload;
 use hyper_rustls::HttpsConnector;
 use std::error;
@@ -37,6 +39,30 @@ pub fn create_file_with_len(name: &str, len: u64) -> impl Future<Item = fs::File
             })
             .chain_err(|| "Failed to allocate file")
         })
+}
+
+// Extract the authentication part of the URL and generate
+// a string that can be directly plugged into the Authorization header
+pub fn parse_url_basic_auth(url: &Uri) -> Option<String> {
+    url.authority_part()
+        .map(|a| a.as_str())
+        .and_then(|a| a.find("@").map(move |index| (a, index)))
+        .map(|(a, index)| base64::encode(&a[0..index]))
+        .map(|result| format!("Basic {}", result))
+}
+
+pub trait ReqBuilderExt {
+    fn add_auth_header(&mut self, auth_header: &Option<String>) -> &mut Self;
+}
+
+impl ReqBuilderExt for ReqBuilder {
+    fn add_auth_header(&mut self, auth_header: &Option<String>) -> &mut ReqBuilder {
+        if let &Some(ref header) = auth_header {
+            self.header(header::AUTHORIZATION, header.to_owned())
+        } else {
+            self
+        }
+    }
 }
 
 macro_rules! clone {

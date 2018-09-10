@@ -1,6 +1,8 @@
+extern crate base64;
 #[macro_use]
 extern crate error_chain;
 extern crate futures;
+extern crate http;
 extern crate hyper;
 extern crate hyper_rustls;
 extern crate percent_encoding;

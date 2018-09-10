@@ -20,13 +20,15 @@ pub struct DownloadWorker {
     client: Client<HttpsConnector<client::HttpConnector>, Body>,
     block_size: u64,
     file_len: u64,
+    auth_header: Option<String>,
     recv_chan: Option<mpsc::Receiver<WorkerMessage>>,
     send_chan: mpsc::Sender<WorkerMessage>
 }
 
 impl DownloadWorker {
     pub fn new(
-        id: usize, url: Uri, file_len: u64, block_size: u64,
+        id: usize, url: Uri, auth_header: Option<String>,
+        file_len: u64, block_size: u64,
         recv_chan: mpsc::Receiver<WorkerMessage>,
         send_chan: mpsc::Sender<WorkerMessage>
     ) -> DownloadWorker {
@@ -35,6 +37,7 @@ impl DownloadWorker {
         DownloadWorker {
             id,
             url,
+            auth_header,
             client,
             block_size,
             file_len,
@@ -92,6 +95,7 @@ impl DownloadWorker {
         // Construct the range request
         let req = Request::get(self.url.clone())
             .header(header::RANGE, format!("bytes={}-{}", block_start, block_end))
+            .add_auth_header(&self.auth_header)
             .body(Body::empty()).unwrap();
 
         self.client.request(req)
