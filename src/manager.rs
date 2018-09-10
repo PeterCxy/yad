@@ -4,6 +4,7 @@ use futures::future::{self, Either};
 use futures::sync::mpsc;
 use hyper::{Body, Request, Uri};
 use hyper::header;
+use percent_encoding::percent_decode;
 use std::io::SeekFrom;
 use std::sync::{Arc, Mutex};
 use tokio::{self, fs, io};
@@ -78,14 +79,14 @@ impl DownloadManager {
 
         // Find the file name from the url
         // TODO: Make this configurable
-        let file_name = {
+        let file_name = percent_decode({
             let path = url.path();
             let index = path.rfind("/");
             match index {
                 Some(index) => (&path[index..]).replace("/", "").to_owned(),
                 None => path.to_owned()
             }
-        };
+        }.as_bytes()).decode_utf8_lossy().into_owned();
 
         DownloadManager {
             url,

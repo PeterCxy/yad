@@ -3,6 +3,7 @@ extern crate error_chain;
 extern crate futures;
 extern crate hyper;
 extern crate hyper_rustls;
+extern crate percent_encoding;
 extern crate tokio;
 
 mod errors {
