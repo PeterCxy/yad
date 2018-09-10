@@ -10,7 +10,7 @@ use util::*;
 
 #[derive(Debug)]
 pub enum WorkerError {
-    NoPartialContentSupport,
+    UnexpectedResponse(StatusCode),
     ConnectionError(hyper::Error)
 }
 
@@ -102,9 +102,9 @@ impl DownloadWorker {
             .map_err(|e| WorkerError::ConnectionError(e))
             .and_then(|response| {
                 if response.status() != StatusCode::PARTIAL_CONTENT {
-                    // Well, PARTIAL_CONTENT is unsupported...
+                    // Well, PARTIAL_CONTENT is unsupported... (or failed)
                     // There is nothing we can do here.
-                    Either::A(future::err(WorkerError::NoPartialContentSupport))
+                    Either::A(future::err(WorkerError::UnexpectedResponse(response.status())))
                 } else {
                     // Collect the body for this block
                     Either::B(response.into_body()

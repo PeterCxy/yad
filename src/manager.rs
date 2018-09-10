@@ -196,9 +196,10 @@ impl DownloadManager {
                             .map_err(|_| DownloadManagerError::Success)
                             .and_then(|_| future::ok(file)))
                     },
-                    WorkerError::NoPartialContentSupport => {
-                        println!("=> No partial content support on the server. Exiting.");
-                        Either::B(future::err("No partial content support".into()))
+                    WorkerError::UnexpectedResponse(code) => {
+                        // TODO: Maybe we can still retry for some error codes?
+                        println!("=> Unexpected response from server: {}", code);
+                        Either::B(future::err("Unexpected response".into()))
                     }
                 }),
                 _ => panic!("WTF")
