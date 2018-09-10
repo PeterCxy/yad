@@ -58,12 +58,16 @@ impl DownloadManager {
             .add_auth_header(&auth_header).body(Body::empty()).unwrap())
             .chain_err(|| "Failed to fetch for file information: Server error.")
             .and_then(|r| {
-                r.headers().get(header::CONTENT_LENGTH)
-                    .ok_or("Failed to request for content length".into())
-                    .and_then(|l| l.to_str()
-                        .chain_err(|| "Failed to get content length"))
-                    .and_then(|l| l.parse()
-                        .chain_err(|| "Failed to parse content length"))
+                if r.status() != 200 {
+                    Err(format!("Failed server response: {}", r.status()).into())
+                } else {
+                    r.headers().get(header::CONTENT_LENGTH)
+                        .ok_or("Failed to request for content length".into())
+                        .and_then(|l| l.to_str()
+                            .chain_err(|| "Failed to get content length"))
+                        .and_then(|l| l.parse()
+                            .chain_err(|| "Failed to parse content length"))
+                }
             })
             .map(move |len| {
                 Self::initialize(url, auth_header, len, block_size)
