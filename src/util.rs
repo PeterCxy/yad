@@ -3,7 +3,7 @@ use errors::*;
 use futures::{Async, Future, Poll};
 use futures::future::poll_fn;
 use http::request::Builder as ReqBuilder;
-use hyper::{client, Client, header, Uri};
+use hyper::{Body, client, Client, header, Uri, Response};
 use hyper::body::Payload;
 use hyper_rustls::HttpsConnector;
 use std::error;
@@ -63,6 +63,20 @@ impl ReqBuilderExt for ReqBuilder {
             self
         }
     }
+}
+
+// Parse the Content-Disposition header for the file name
+pub fn parse_content_disposition(resp: &Response<Body>) -> Option<String> {
+    resp.headers().get(header::CONTENT_DISPOSITION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| {
+            let arr: Vec<_> = h.split(";").map(|s| s.trim()).collect();
+            if arr.len() < 2 || arr[0] != "attachment" || !arr[1].starts_with("filename=\"") {
+                None
+            } else {
+                Some(arr[1][10..arr[1].len() - 1].to_owned())
+            }
+        })
 }
 
 macro_rules! clone {

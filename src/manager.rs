@@ -67,16 +67,18 @@ impl DownloadManager {
                     // Not a successful response either
                     Err(format!("Failed server response: {}", r.status()).into())
                 } else {
+                    let file_name = parse_content_disposition(&r);
                     r.headers().get(header::CONTENT_LENGTH)
                         .ok_or("Failed to request for content length".into())
                         .and_then(|l| l.to_str()
                             .chain_err(|| "Failed to get content length"))
                         .and_then(|l| l.parse()
                             .chain_err(|| "Failed to parse content length"))
+                        .map(move |l| (l, file_name))
                 }
             })
-            .map(move |len| {
-                Self::initialize(url, auth_header, len, block_size)
+            .map(move |(len, file_name)| {
+                Self::initialize(url, auth_header, file_name, len, block_size)
             })
     }
 
@@ -90,7 +92,7 @@ impl DownloadManager {
             .body(Body::empty()).unwrap()
     }
 
-    fn initialize(url: Uri, auth_header: Option<String>, len: u64, block_size: u64) -> DownloadManager {
+    fn initialize(url: Uri, auth_header: Option<String>, file_name: Option<String>, len: u64, block_size: u64) -> DownloadManager {
         // Divide the file into blocks of block_size, rounded up to an integer
         // Therefore, the last block might or might not be a full block. This
         // has to be dealt with by the download worker.
@@ -101,14 +103,19 @@ impl DownloadManager {
 
         // Find the file name from the url
         // TODO: Make this configurable
-        let file_name = percent_decode({
-            let path = url.path();
-            let index = path.rfind("/");
-            match index {
-                Some(index) => (&path[index..]).replace("/", "").to_owned(),
-                None => path.to_owned()
-            }
-        }.as_bytes()).decode_utf8_lossy().into_owned();
+        let file_name = if let Some(file_name) = file_name {
+            println!("=> Using server-provided file name: {}", file_name);
+            file_name
+        } else {
+            percent_decode({
+                let path = url.path();
+                let index = path.rfind("/");
+                match index {
+                    Some(index) => (&path[index..]).replace("/", "").to_owned(),
+                    None => path.to_owned()
+                }
+            }.as_bytes()).decode_utf8_lossy().into_owned()
+        };
 
         DownloadManager {
             url,
