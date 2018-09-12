@@ -7,6 +7,7 @@ use hyper::header;
 use percent_encoding::percent_decode;
 use std::io::SeekFrom;
 use std::sync::{Arc, Mutex};
+use terminal_size;
 use tokio::{self, fs, io};
 use util::*;
 use worker::*;
@@ -21,6 +22,7 @@ pub enum BlockState {
 #[derive(Debug)]
 pub enum WorkerMessage {
     Download(usize),
+    Progress(usize, u64),
     Finished(usize, usize, Vec<u8>),
     Failed(usize, usize, WorkerError)
 }
@@ -44,8 +46,10 @@ pub struct DownloadManager {
     pub block_count: usize,
     pub block_size: u64,
     pub file_name: String,
+    downloaded_len: u64,
     auth_header: Option<String>,
     blocks_state: Vec<BlockState>,
+    blocks_downloaded: Vec<u64>, // A cache mainly for recording how much is done for running jobs
     blocks_pending: Vec<usize>
 }
 
@@ -124,7 +128,9 @@ impl DownloadManager {
             file_name,
             block_count,
             block_size,
+            downloaded_len: 0,
             blocks_state: vec![BlockState::Pending; block_count],
+            blocks_downloaded: vec![0; block_count],
             blocks_pending: (0..block_count).collect()
         }
     }
@@ -171,8 +177,6 @@ impl DownloadManager {
                     Either::A(this.lock().unwrap().write_to_file(file, id, bytes)
                         .map_err(|e| DownloadManagerError::Error(e))
                         .and_then(clone!(this, send_chan; |file| {
-                            // TODO: A proper progress bar
-                            println!("=> Worker {} finished downloading block {}", worker, id);
                             // Mark the current one as completed
                             this.lock().unwrap().blocks_state[id] = BlockState::Finished;
                             if this.lock().unwrap().has_finished() {
@@ -209,6 +213,12 @@ impl DownloadManager {
                         Either::B(future::err("Unexpected response".into()))
                     }
                 }),
+                WorkerMessage::Progress(block_id, len) => {
+                    this.lock().unwrap().blocks_downloaded[block_id] += len;
+                    this.lock().unwrap().downloaded_len += len;
+                    this.lock().unwrap().print_progress();
+                    Either::B(Either::B(future::ok(file)))
+                },
                 _ => panic!("WTF")
             }
         }))
@@ -250,5 +260,53 @@ impl DownloadManager {
     fn has_finished(&self) -> bool {
         self.blocks_pending.len() == 0 &&
             !self.blocks_state.contains(&BlockState::Downloading)
+    }
+
+    fn print_progress(&self) {
+        let percentage = self.downloaded_len as f64 / self.file_len as f64;
+        let percentage_100 = percentage * 100f64;
+
+        if let Some((terminal_size::Width(w), _)) = terminal_size::terminal_size() {
+            // Only print the progress bar when we can get the size of the terminal
+            // Prepare the text to print before and after the progress bar
+            let precedent = format!("=> Downloading: [");
+            let succedent = format!("] {:.2}%", percentage_100);
+
+            // If too small, just fallback
+            if precedent.len() + succedent.len() + 4 >= w as usize {
+                Self::print_progress_fallback(percentage_100);
+                return;
+            }
+
+            // Calculate how many "-" and ">" do we need to print the progress bar
+            let num_all = w - 4 - precedent.len() as u16 - succedent.len() as u16;
+            let num_finished = (num_all as f64 * percentage) as u16;
+
+            // Go back to the head of line
+            print!("\r");
+
+            // Print the precedent text
+            print!("{}", precedent);
+
+            // Print the finished part
+            for _ in 0..num_finished {
+                print!(">");
+            }
+
+            // Print the unfinished part
+            for _ in num_finished..num_all {
+                print!("-");
+            }
+
+            // Print the succedent
+            print!("{}", succedent);
+        } else {
+            Self::print_progress_fallback(percentage_100);
+        }
+    }
+
+    fn print_progress_fallback(percentage_100: f64) {
+        print!("\r");
+        print!("=> Progress: {:.2}%", percentage_100)
     }
 }

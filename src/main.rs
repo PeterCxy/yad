@@ -6,6 +6,7 @@ extern crate http;
 extern crate hyper;
 extern crate hyper_rustls;
 extern crate percent_encoding;
+extern crate terminal_size;
 extern crate tokio;
 
 mod errors {

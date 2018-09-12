@@ -98,9 +98,11 @@ impl DownloadWorker {
             .add_auth_header(&self.auth_header)
             .body(Body::empty()).unwrap();
 
+        let send_chan = self.send_chan.clone();
+
         self.client.request(req)
             .map_err(|e| WorkerError::ConnectionError(e))
-            .and_then(|response| {
+            .and_then(move |response| {
                 if response.status() != StatusCode::PARTIAL_CONTENT {
                     // Well, PARTIAL_CONTENT is unsupported... (or failed)
                     // There is nothing we can do here.
@@ -109,6 +111,11 @@ impl DownloadWorker {
                     // Collect the body for this block
                     Either::B(response.into_body()
                         .map_err(|e| WorkerError::ConnectionError(e))
+                        .and_then(move |chunk| {
+                            send_chan.clone().send(WorkerMessage::Progress(block_id, chunk.len() as u64))
+                                .map(move |_| chunk)
+                                .map_err(|e| panic!("Unexpected error {:?}", e))
+                        })
                         .concat2()
                         .map(|chunk| chunk.to_vec()))
                 }
