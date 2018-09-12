@@ -7,6 +7,7 @@ use hyper::{Body, client, Client, header, Uri, Response};
 use hyper::body::Payload;
 use hyper_rustls::HttpsConnector;
 use std::error;
+use std::time::Duration;
 use tokio::fs;
 
 pub fn hyper_client<B: Payload>() -> Client<HttpsConnector<client::HttpConnector>, B> {
@@ -77,6 +78,19 @@ pub fn parse_content_disposition(resp: &Response<Body>) -> Option<String> {
                 Some(arr[1][10..arr[1].len() - 1].to_owned())
             }
         })
+}
+
+pub fn build_human_readable_speed(duration: Duration, delta: u64) -> String {
+    let duration = duration.as_secs() as f64 + duration.subsec_nanos() as f64 / 1000f64 / 1000f64 / 1000f64;
+    let speed = delta as f64 / duration;
+
+    if speed >= 1024f64 * 1024f64 {
+        format!("{:.1} MiB/s", speed / 1024f64 / 1024f64)
+    } else if speed >= 1024f64 {
+        format!("{:.1} KiB/s", speed / 1024f64)
+    } else {
+        format!("{:.1} B/s", speed)
+    }
 }
 
 macro_rules! clone {

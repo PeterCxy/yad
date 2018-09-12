@@ -7,6 +7,7 @@ use hyper::header;
 use percent_encoding::percent_decode;
 use std::io::SeekFrom;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use terminal_size;
 use tokio::{self, fs, io};
 use util::*;
@@ -47,6 +48,8 @@ pub struct DownloadManager {
     pub block_size: u64,
     pub file_name: String,
     downloaded_len: u64,
+    start_instant: Instant, // The start time
+    last_instant: Instant, // The last time we checked speed
     auth_header: Option<String>,
     blocks_state: Vec<BlockState>,
     blocks_downloaded: Vec<u64>, // A cache mainly for recording how much is done for running jobs
@@ -129,6 +132,8 @@ impl DownloadManager {
             block_count,
             block_size,
             downloaded_len: 0,
+            start_instant: Instant::now(),
+            last_instant: Instant::now(),
             blocks_state: vec![BlockState::Pending; block_count],
             blocks_downloaded: vec![0; block_count],
             blocks_pending: (0..block_count).collect()
@@ -262,15 +267,23 @@ impl DownloadManager {
             !self.blocks_state.contains(&BlockState::Downloading)
     }
 
-    fn print_progress(&self) {
+    fn print_progress(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.last_instant) <= Duration::from_millis(10) {
+            return;
+        }
+        self.last_instant = now;
+
         let percentage = self.downloaded_len as f64 / self.file_len as f64;
         let percentage_100 = percentage * 100f64;
+        let duration = now.duration_since(self.start_instant);
+        let speed = build_human_readable_speed(duration, self.downloaded_len);
 
         if let Some((terminal_size::Width(w), _)) = terminal_size::terminal_size() {
             // Only print the progress bar when we can get the size of the terminal
             // Prepare the text to print before and after the progress bar
             let precedent = format!("=> Downloading: [");
-            let succedent = format!("] {:.2}%", percentage_100);
+            let succedent = format!("] {:.1}% {}", percentage_100, speed);
 
             // If too small, just fallback
             if precedent.len() + succedent.len() + 4 >= w as usize {
