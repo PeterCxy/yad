@@ -207,6 +207,9 @@ impl DownloadManager {
                         println!("=> Worker {} failed while downloading block {} with error {:?}, retrying later", worker, id, e);
                         this.lock().unwrap().blocks_state[id] = BlockState::Pending;
                         this.lock().unwrap().blocks_pending.push(id); // Add it back to pending list
+                        this.lock().unwrap().downloaded_len -= this.lock().unwrap().blocks_downloaded[id];
+                        this.lock().unwrap().blocks_downloaded[id] = 0;
+                        this.lock().unwrap().print_progress();
                         // Re-assign a download task
                         Either::A(this.lock().unwrap().assign_download_task(&send_chan, worker)
                             .map_err(|_| DownloadManagerError::Success)
