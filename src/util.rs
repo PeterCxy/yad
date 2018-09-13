@@ -80,17 +80,40 @@ pub fn parse_content_disposition(resp: &Response<Body>) -> Option<String> {
         })
 }
 
-pub fn build_human_readable_speed(duration: Duration, delta: u64) -> String {
+pub fn build_human_readable_speed(duration: Duration, delta: u64) -> (f64, String) {
     let duration = duration.as_secs() as f64 + duration.subsec_nanos() as f64 / 1000f64 / 1000f64 / 1000f64;
     let speed = delta as f64 / duration;
 
-    if speed >= 1024f64 * 1024f64 {
+    let human_readable = if speed >= 1024f64 * 1024f64 {
         format!("{:.1} MiB/s", speed / 1024f64 / 1024f64)
     } else if speed >= 1024f64 {
         format!("{:.1} KiB/s", speed / 1024f64)
     } else {
         format!("{:.1} B/s", speed)
+    };
+
+    (speed, human_readable)
+}
+
+pub fn build_human_readable_eta(speed: f64, remaining: u64) -> String {
+    let mut eta = (remaining as f64 / speed) as u64;
+    let mut ret = String::new();
+
+    if eta >= 3600 {
+        let hr = eta / 3600;
+        eta -= hr * 3600;
+        ret += &format!("{:02}h", hr);
     }
+
+    if eta >= 60 {
+        let min = eta / 60;
+        eta -= min * 60;
+        ret += &format!("{:02}m", min);
+    }
+
+    ret += &format!("{:02}s", eta);
+
+    return ret;
 }
 
 macro_rules! clone {

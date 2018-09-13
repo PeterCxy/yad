@@ -282,13 +282,14 @@ impl DownloadManager {
         let percentage = self.downloaded_len as f64 / self.file_len as f64;
         let percentage_100 = percentage * 100f64;
         let duration = now.duration_since(self.start_instant);
-        let speed = build_human_readable_speed(duration, self.downloaded_len);
+        let (speed_raw, speed) = build_human_readable_speed(duration, self.downloaded_len);
+        let eta = build_human_readable_eta(speed_raw, self.file_len - self.downloaded_len);
 
         if let Some((terminal_size::Width(w), _)) = terminal_size::terminal_size() {
             // Only print the progress bar when we can get the size of the terminal
             // Prepare the text to print before and after the progress bar
             let precedent = format!("=> Downloading: [");
-            let succedent = format!("] {:.1}% {}", percentage_100, speed);
+            let succedent = format!("] {:.1}% {} ETA {}", percentage_100, speed, eta);
 
             // If too small, just fallback
             if precedent.len() + succedent.len() + 4 >= w as usize {
