@@ -206,7 +206,7 @@ impl DownloadManager {
                 WorkerMessage::Failed(worker, id, err) => Either::B(match err {
                     WorkerError::ConnectionError(e) => {
                         // TODO: Add a limit to connection errors
-                        println!("=> Worker {} failed while downloading block {} with error {:?}, retrying later", worker, id, e);
+                        println!("\r=> Worker {} failed while downloading block {} with error {:?}, retrying later", worker, id, e);
                         _this.blocks_state[id] = BlockState::Pending;
                         _this.blocks_pending.push(id); // Add it back to pending list
                         _this.downloaded_len -= _this.blocks_downloaded[id];
@@ -219,7 +219,7 @@ impl DownloadManager {
                     },
                     WorkerError::UnexpectedResponse(code) => {
                         // TODO: Maybe we can still retry for some error codes?
-                        println!("=> Unexpected response from server: {}", code);
+                        println!("\n=> Unexpected response from server: {}", code);
                         Either::B(future::err("Unexpected response".into()))
                     }
                 }),
