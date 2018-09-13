@@ -80,19 +80,18 @@ pub fn parse_content_disposition(resp: &Response<Body>) -> Option<String> {
         })
 }
 
-pub fn build_human_readable_speed(duration: Duration, delta: u64) -> (f64, String) {
-    let duration = duration.as_secs() as f64 + duration.subsec_nanos() as f64 / 1000f64 / 1000f64 / 1000f64;
-    let speed = delta as f64 / duration;
+pub fn duration_to_secs_float(duration: Duration) -> f64 {
+    duration.as_secs() as f64 + duration.subsec_nanos() as f64 / 1000f64 / 1000f64 / 1000f64
+}
 
-    let human_readable = if speed >= 1024f64 * 1024f64 {
+pub fn build_human_readable_speed(speed: f64) -> String {
+    if speed >= 1024f64 * 1024f64 {
         format!("{:.1} MiB/s", speed / 1024f64 / 1024f64)
     } else if speed >= 1024f64 {
         format!("{:.1} KiB/s", speed / 1024f64)
     } else {
         format!("{:.1} B/s", speed)
-    };
-
-    (speed, human_readable)
+    }
 }
 
 pub fn build_human_readable_eta(speed: f64, remaining: u64) -> String {

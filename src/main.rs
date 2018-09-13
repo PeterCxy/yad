@@ -19,6 +19,7 @@ mod errors {
     }
 }
 
+mod speed;
 #[macro_use]
 mod util;
 mod manager;

@@ -5,9 +5,10 @@ use futures::sync::mpsc;
 use hyper::{Body, Request, StatusCode, Uri};
 use hyper::header;
 use percent_encoding::percent_decode;
+use speed::SpeedMeter;
 use std::io::SeekFrom;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use terminal_size;
 use tokio::{self, fs, io};
 use util::*;
@@ -48,8 +49,7 @@ pub struct DownloadManager {
     pub block_size: u64,
     pub file_name: String,
     downloaded_len: u64,
-    start_instant: Instant, // The start time
-    last_instant: Instant, // The last time we checked speed
+    meter: SpeedMeter,
     auth_header: Option<String>,
     blocks_state: Vec<BlockState>,
     blocks_downloaded: Vec<u64>, // A cache mainly for recording how much is done for running jobs
@@ -131,9 +131,8 @@ impl DownloadManager {
             file_name,
             block_count,
             block_size,
+            meter: SpeedMeter::new(Duration::from_millis(100), 10),
             downloaded_len: 0,
-            start_instant: Instant::now(),
-            last_instant: Instant::now(),
             blocks_state: vec![BlockState::Pending; block_count],
             blocks_downloaded: vec![0; block_count],
             blocks_pending: (0..block_count).collect()
@@ -226,7 +225,9 @@ impl DownloadManager {
                 WorkerMessage::Progress(block_id, len) => {
                     _this.blocks_downloaded[block_id] += len;
                     _this.downloaded_len += len;
-                    _this.print_progress();
+                    if _this.meter.add(len) {
+                        _this.print_progress();
+                    }
                     Either::B(Either::B(future::ok(file)))
                 },
                 _ => panic!("WTF")
@@ -273,16 +274,10 @@ impl DownloadManager {
     }
 
     fn print_progress(&mut self) {
-        let now = Instant::now();
-        if now.duration_since(self.last_instant) <= Duration::from_millis(10) {
-            return;
-        }
-        self.last_instant = now;
-
         let percentage = self.downloaded_len as f64 / self.file_len as f64;
         let percentage_100 = percentage * 100f64;
-        let duration = now.duration_since(self.start_instant);
-        let (speed_raw, speed) = build_human_readable_speed(duration, self.downloaded_len);
+        let speed_raw = self.meter.get_speed_per_sec();
+        let speed = build_human_readable_speed(speed_raw);
         let eta = build_human_readable_eta(speed_raw, self.file_len - self.downloaded_len);
 
         if let Some((terminal_size::Width(w), _)) = terminal_size::terminal_size() {
