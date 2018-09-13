@@ -99,6 +99,7 @@ impl DownloadWorker {
             .body(Body::empty()).unwrap();
 
         let send_chan = self.send_chan.clone();
+        let v = Vec::with_capacity(self.block_size as usize);
 
         self.client.request(req)
             .map_err(|e| WorkerError::ConnectionError(e))
@@ -116,8 +117,10 @@ impl DownloadWorker {
                                 .map(move |_| chunk)
                                 .map_err(|e| panic!("Unexpected error {:?}", e))
                         })
-                        .concat2()
-                        .map(|chunk| chunk.to_vec()))
+                        .fold(v, move |mut v, chunk| {
+                            v.extend_from_slice(&chunk);
+                            future::ok(v)
+                        }))
                 }
             })
     }
