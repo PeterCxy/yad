@@ -177,14 +177,16 @@ impl DownloadManager {
         let this = Arc::new(Mutex::new(self));
         let send_chan = Arc::new(send_chan);
         recv_chan.map_err(|_| "".into()).fold(file, clone!(this; |file, message| {
+            let mut _this = this.lock().unwrap();
             match message {
                 WorkerMessage::Finished(worker, id, bytes) => {
-                    Either::A(this.lock().unwrap().write_to_file(file, id, bytes)
+                    Either::A(_this.write_to_file(file, id, bytes)
                         .map_err(|e| DownloadManagerError::Error(e))
                         .and_then(clone!(this, send_chan; |file| {
+                            let mut _this = this.lock().unwrap();
                             // Mark the current one as completed
-                            this.lock().unwrap().blocks_state[id] = BlockState::Finished;
-                            if this.lock().unwrap().has_finished() {
+                            _this.blocks_state[id] = BlockState::Finished;
+                            if _this.has_finished() {
                                 // All download tasks finished. We use an "error"
                                 // to terminate the stream, since this is
                                 // the easiest way I could think of...
@@ -195,7 +197,7 @@ impl DownloadManager {
                                 // or that some worker is still running. Anyway,
                                 // Try to assign a new task to the now idle worker
                                 // It will silently skip if no more tasks available
-                                Either::B(this.lock().unwrap().assign_download_task(&send_chan, worker)
+                                Either::B(_this.assign_download_task(&send_chan, worker)
                                     .map_err(|_| DownloadManagerError::Success)
                                     .and_then(|_| future::ok(file)))
                             }
@@ -205,13 +207,13 @@ impl DownloadManager {
                     WorkerError::ConnectionError(e) => {
                         // TODO: Add a limit to connection errors
                         println!("=> Worker {} failed while downloading block {} with error {:?}, retrying later", worker, id, e);
-                        this.lock().unwrap().blocks_state[id] = BlockState::Pending;
-                        this.lock().unwrap().blocks_pending.push(id); // Add it back to pending list
-                        this.lock().unwrap().downloaded_len -= this.lock().unwrap().blocks_downloaded[id];
-                        this.lock().unwrap().blocks_downloaded[id] = 0;
-                        this.lock().unwrap().print_progress();
+                        _this.blocks_state[id] = BlockState::Pending;
+                        _this.blocks_pending.push(id); // Add it back to pending list
+                        _this.downloaded_len -= _this.blocks_downloaded[id];
+                        _this.blocks_downloaded[id] = 0;
+                        _this.print_progress();
                         // Re-assign a download task
-                        Either::A(this.lock().unwrap().assign_download_task(&send_chan, worker)
+                        Either::A(_this.assign_download_task(&send_chan, worker)
                             .map_err(|_| DownloadManagerError::Success)
                             .and_then(|_| future::ok(file)))
                     },
@@ -222,9 +224,9 @@ impl DownloadManager {
                     }
                 }),
                 WorkerMessage::Progress(block_id, len) => {
-                    this.lock().unwrap().blocks_downloaded[block_id] += len;
-                    this.lock().unwrap().downloaded_len += len;
-                    this.lock().unwrap().print_progress();
+                    _this.blocks_downloaded[block_id] += len;
+                    _this.downloaded_len += len;
+                    _this.print_progress();
                     Either::B(Either::B(future::ok(file)))
                 },
                 _ => panic!("WTF")
