@@ -28,15 +28,22 @@ mod worker;
 use futures::Future;
 
 fn main() {
+    let thread_num = 4;
     let block_size = 2048000; // TODO: Make this configurable
     let url = std::env::args().skip(1).take(1).last().unwrap();
+    let mut threadpool_builder = tokio::executor::thread_pool::Builder::new();
+    threadpool_builder.pool_size(thread_num);
+    let mut runtime = tokio::runtime::Builder::new()
+        .threadpool_builder(threadpool_builder)
+        .build().unwrap();
+
     println!("=> Retrieving information about url...");
-    tokio::run(manager::DownloadManager::new(url.parse().unwrap(), block_size)
+    runtime.block_on(manager::DownloadManager::new(url.parse().unwrap(), block_size)
         .and_then(move |m| {
             println!("=> File name: {}", m.file_name);
             println!("=> File size: {} bytes", m.file_len);
             println!("=> {} bytes block count: {}", block_size, m.block_count);
-            m.run(4)
+            m.run(thread_num)
         })
-        .map_err(|e| println!("=> fatal error: {:?}", e)));
+        .map_err(|e| println!("=> fatal error: {:?}", e))).unwrap();
 }
