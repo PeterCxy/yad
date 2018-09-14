@@ -186,19 +186,21 @@ impl DownloadManager {
                             // Mark the current one as completed
                             _this.blocks_state[id] = BlockState::Finished;
 
-                            // If there is still unsynchronized progress report
-                            // report it now.
-                            if _this.blocks_downloaded[id] < _this.block_size {
-                                let len = _this.block_size - _this.blocks_downloaded[id];
-                                _this.progress(id, len);
-                            }
-
                             if _this.has_finished() {
                                 // All download tasks finished. We use an "error"
                                 // to terminate the stream, since this is
                                 // the easiest way I could think of...
+                                // Before that, we update the process to 100% at least
+                                _this.downloaded_len = _this.file_len;
+                                _this.print_progress();
                                 Either::A(future::err(DownloadManagerError::Success))
                             } else {
+                                // If there is still unsynchronized progress report
+                                // report it now.
+                                if _this.blocks_downloaded[id] < _this.block_size {
+                                    let len = _this.block_size - _this.blocks_downloaded[id];
+                                    _this.progress(id, len);
+                                }
                                 // We still haven't finished yet
                                 // It might be caused by more pending blocks
                                 // or that some worker is still running. Anyway,
