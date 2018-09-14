@@ -5,6 +5,7 @@ use futures::sync::mpsc;
 use hyper::{self, Body, client, Client, header, Request, StatusCode, Uri};
 use hyper_rustls::HttpsConnector;
 use manager::WorkerMessage;
+use std::time::{Instant, Duration};
 use tokio;
 use util::*;
 
@@ -100,6 +101,8 @@ impl DownloadWorker {
 
         let send_chan = self.send_chan.clone();
         let v = Vec::with_capacity(self.block_size as usize);
+        let mut last_instant = Instant::now();
+        let mut delta = 0;
 
         self.client.request(req)
             .map_err(|e| WorkerError::ConnectionError(e))
@@ -113,9 +116,23 @@ impl DownloadWorker {
                     Either::B(response.into_body()
                         .map_err(|e| WorkerError::ConnectionError(e))
                         .and_then(move |chunk| {
-                            send_chan.clone().send(WorkerMessage::Progress(block_id, chunk.len() as u64))
-                                .map(move |_| chunk)
-                                .map_err(|e| panic!("Unexpected error {:?}", e))
+                            delta += chunk.len() as u64;
+                            let now = Instant::now();
+
+                            if now.duration_since(last_instant) >= Duration::from_millis(50) {
+                                // Limit the rate of progress reports to the controller
+                                // This brings the possibility that there might still be
+                                // remaining unreported progress when this finishes,
+                                // thus needs the controller to remember to check the progress
+                                // when finish.
+                                last_instant = now;
+                                let delta = ::std::mem::replace(&mut delta, 0);
+                                Either::A(send_chan.clone().send(WorkerMessage::Progress(block_id, delta))
+                                    .map(move |_| chunk)
+                                    .map_err(|e| panic!("Unexpected error {:?}", e)))
+                            } else {
+                                Either::B(future::ok(chunk))
+                            }
                         })
                         .fold(v, move |mut v, chunk| {
                             v.extend_from_slice(&chunk);

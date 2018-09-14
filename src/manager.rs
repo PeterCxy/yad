@@ -185,6 +185,14 @@ impl DownloadManager {
                             let mut _this = this.lock().unwrap();
                             // Mark the current one as completed
                             _this.blocks_state[id] = BlockState::Finished;
+
+                            // If there is still unsynchronized progress report
+                            // report it now.
+                            if _this.blocks_downloaded[id] < _this.block_size {
+                                let len = _this.block_size - _this.blocks_downloaded[id];
+                                _this.progress(id, len);
+                            }
+
                             if _this.has_finished() {
                                 // All download tasks finished. We use an "error"
                                 // to terminate the stream, since this is
@@ -223,11 +231,7 @@ impl DownloadManager {
                     }
                 }),
                 WorkerMessage::Progress(block_id, len) => {
-                    _this.blocks_downloaded[block_id] += len;
-                    _this.downloaded_len += len;
-                    if _this.meter.add(len) {
-                        _this.print_progress();
-                    }
+                    _this.progress(block_id, len);
                     Either::B(Either::B(future::ok(file)))
                 },
                 _ => panic!("WTF")
@@ -271,6 +275,16 @@ impl DownloadManager {
     fn has_finished(&self) -> bool {
         self.blocks_pending.len() == 0 &&
             !self.blocks_state.contains(&BlockState::Downloading)
+    }
+
+    // Add some length to a block's known downloaded length
+    // print progress report if needed
+    fn progress(&mut self, block_id: usize, len: u64) {
+        self.blocks_downloaded[block_id] += len;
+        self.downloaded_len += len;
+        if self.meter.add(len) {
+            self.print_progress();
+        }
     }
 
     fn print_progress(&mut self) {
