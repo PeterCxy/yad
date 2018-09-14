@@ -6,6 +6,7 @@ use http::request::Builder as ReqBuilder;
 use hyper::{Body, client, Client, header, Uri, Response};
 use hyper::body::Payload;
 use hyper_rustls::HttpsConnector;
+use num_cpus;
 use std::error;
 use std::time::Duration;
 use tokio::fs;
@@ -13,7 +14,7 @@ use tokio::fs;
 pub fn hyper_client<B: Payload>() -> Client<HttpsConnector<client::HttpConnector>, B> {
     client::Builder::default()
         .keep_alive(true)
-        .build(HttpsConnector::new(4))
+        .build(HttpsConnector::new(num_cpus::get()))
 }
 
 // Create a file with length
