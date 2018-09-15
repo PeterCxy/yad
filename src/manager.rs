@@ -43,6 +43,7 @@ impl<T> From<T> for DownloadManagerError where T: Into<Error> {
 }
 
 const TIME_SLICE_MS: u64 = 50;
+const PROGRESS_AVERAGE_WINDOW: u64 = 3000;
 
 #[derive(Debug)]
 pub struct DownloadManager {
@@ -134,7 +135,7 @@ impl DownloadManager {
             file_name,
             block_count,
             block_size,
-            meter: SpeedMeter::new(Duration::from_millis(TIME_SLICE_MS), 10),
+            meter: SpeedMeter::new(Duration::from_millis(TIME_SLICE_MS), (PROGRESS_AVERAGE_WINDOW / TIME_SLICE_MS) as usize),
             downloaded_len: 0,
             download_delta: Arc::new(AtomicU64::new(0)),
             blocks_state: vec![BlockState::Pending; block_count],
