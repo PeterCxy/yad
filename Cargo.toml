@@ -5,6 +5,7 @@ authors = ["Peter Cai <peter@typeblog.net>"]
 
 [dependencies]
 base64 = "0.9"
+bytes = "0.4"
 error-chain = "0.12"
 futures = "0.1"
 http = "0.1"

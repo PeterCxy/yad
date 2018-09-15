@@ -1,3 +1,4 @@
+use bytes::{Bytes, BytesMut};
 use errors::*;
 use futures::{Future, Stream, Sink};
 use futures::future::{self, Either};
@@ -83,7 +84,7 @@ impl DownloadWorker {
 
     // Download a specified block with Range requests
     // and return a futrue that resolves when completes
-    fn download_block(&self, block_id: usize) -> impl Future<Item = Vec<u8>, Error = WorkerError> {
+    fn download_block(&self, block_id: usize) -> impl Future<Item = Bytes, Error = WorkerError> {
         // Calculate the start & end position of the block
         let block_start = self.block_size * block_id as u64;
         let mut block_end = block_start + self.block_size - 1;
@@ -100,7 +101,7 @@ impl DownloadWorker {
             .body(Body::empty()).unwrap();
 
         let send_chan = self.send_chan.clone();
-        let v = Vec::with_capacity(self.block_size as usize);
+        let v = BytesMut::with_capacity(self.block_size as usize);
         let mut last_instant = Instant::now();
         let mut delta = 0;
 
@@ -137,7 +138,8 @@ impl DownloadWorker {
                         .fold(v, move |mut v, chunk| {
                             v.extend_from_slice(&chunk);
                             future::ok(v)
-                        }))
+                        })
+                        .map(|v| v.freeze()))
                 }
             })
     }

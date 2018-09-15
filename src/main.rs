@@ -1,4 +1,5 @@
 extern crate base64;
+extern crate bytes;
 #[macro_use]
 extern crate error_chain;
 extern crate futures;

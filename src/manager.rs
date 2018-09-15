@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use errors::*;
 use futures::{Future, Stream, Sink};
 use futures::future::{self, Either};
@@ -25,7 +26,7 @@ pub enum BlockState {
 pub enum WorkerMessage {
     Download(usize),
     Progress(usize, u64),
-    Finished(usize, usize, Vec<u8>),
+    Finished(usize, usize, Bytes),
     Failed(usize, usize, WorkerError)
 }
 
@@ -251,7 +252,7 @@ impl DownloadManager {
     }
 
     // Write a downloaded block to the file
-    fn write_to_file(&self, file: fs::File, block_id: usize, bytes: Vec<u8>) -> impl Future<Item = fs::File, Error = Error> {
+    fn write_to_file(&self, file: fs::File, block_id: usize, bytes: Bytes) -> impl Future<Item = fs::File, Error = Error> {
         file.seek(SeekFrom::Start(self.block_size * block_id as u64))
             .and_then(move |(file, _)| io::write_all(file, bytes))
             .map(|(file, _)| file)
