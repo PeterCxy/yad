@@ -147,9 +147,9 @@ impl DownloadManager {
         create_file_with_len(&self.file_name, self.file_len)
             .and_then(move |file| {
                 let mut send_chan = Vec::with_capacity(workers);
-                let (worker_send, recv_chan) = mpsc::channel(1024);
+                let (worker_send, recv_chan) = mpsc::channel(1);
                 for id in 0..workers {
-                    let (tx1, worker_recv) = mpsc::channel(1024);
+                    let (tx1, worker_recv) = mpsc::channel(1);
                     DownloadWorker::new(
                         id, self.url.clone(), self.auth_header.clone(),
                         self.file_len, self.block_size, worker_recv, worker_send.clone()
