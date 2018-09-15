@@ -9,6 +9,7 @@ use percent_encoding::percent_decode;
 use speed::SpeedMeter;
 use std::io::SeekFrom;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use terminal_size;
 use tokio::{self, fs, io};
@@ -25,9 +26,8 @@ pub enum BlockState {
 #[derive(Debug)]
 pub enum WorkerMessage {
     Download(usize),
-    Progress(usize, u64),
     Finished(usize, usize, Bytes),
-    Failed(usize, usize, WorkerError)
+    Failed(usize, usize, u64, WorkerError)
 }
 
 #[derive(Debug)]
@@ -42,6 +42,8 @@ impl<T> From<T> for DownloadManagerError where T: Into<Error> {
     }
 }
 
+const TIME_SLICE_MS: u64 = 50;
+
 #[derive(Debug)]
 pub struct DownloadManager {
     url: Uri,
@@ -50,10 +52,10 @@ pub struct DownloadManager {
     pub block_size: u64,
     pub file_name: String,
     downloaded_len: u64,
+    download_delta: Arc<AtomicU64>,
     meter: SpeedMeter,
     auth_header: Option<String>,
     blocks_state: Vec<BlockState>,
-    blocks_downloaded: Vec<u64>, // A cache mainly for recording how much is done for running jobs
     blocks_pending: Vec<usize>
 }
 
@@ -132,10 +134,10 @@ impl DownloadManager {
             file_name,
             block_count,
             block_size,
-            meter: SpeedMeter::new(Duration::from_millis(100), 10),
+            meter: SpeedMeter::new(Duration::from_millis(TIME_SLICE_MS), 10),
             downloaded_len: 0,
+            download_delta: Arc::new(AtomicU64::new(0)),
             blocks_state: vec![BlockState::Pending; block_count],
-            blocks_downloaded: vec![0; block_count],
             blocks_pending: (0..block_count).collect()
         }
     }
@@ -152,7 +154,8 @@ impl DownloadManager {
                     let (tx1, worker_recv) = mpsc::channel(1);
                     DownloadWorker::new(
                         id, self.url.clone(), self.auth_header.clone(),
-                        self.file_len, self.block_size, worker_recv, worker_send.clone()
+                        self.file_len, self.block_size, self.download_delta.clone(),
+                        worker_recv, worker_send.clone()
                     ).fork_run();
                     send_chan.push(tx1);
                 }
@@ -175,6 +178,11 @@ impl DownloadManager {
     ) -> impl Future<Item = (), Error = Error> {
         // Event loop for the controller future
         let this = Arc::new(Mutex::new(self));
+
+        // Spawn the progress statistics task
+        tokio::spawn(Self::progress_task(this.clone()));
+
+        // Start the event loop
         let send_chan = Arc::new(send_chan);
         recv_chan.map_err(|_| "".into()).fold(file, clone!(this; |file, message| {
             let mut _this = this.lock().unwrap();
@@ -196,12 +204,6 @@ impl DownloadManager {
                                 _this.print_progress();
                                 Either::A(future::err(DownloadManagerError::Success))
                             } else {
-                                // If there is still unsynchronized progress report
-                                // report it now.
-                                if _this.blocks_downloaded[id] < _this.block_size {
-                                    let len = _this.block_size - _this.blocks_downloaded[id];
-                                    _this.progress(id, len);
-                                }
                                 // We still haven't finished yet
                                 // It might be caused by more pending blocks
                                 // or that some worker is still running. Anyway,
@@ -213,14 +215,15 @@ impl DownloadManager {
                             }
                         })))
                 },
-                WorkerMessage::Failed(worker, id, err) => Either::B(match err {
+                WorkerMessage::Failed(worker, id, downloaded_len, err) => Either::B(match err {
                     WorkerError::ConnectionError(e) => {
                         // TODO: Add a limit to connection errors
                         println!("\r=> Worker {} failed while downloading block {} with error {:?}, retrying later", worker, id, e);
                         _this.blocks_state[id] = BlockState::Pending;
                         _this.blocks_pending.push(id); // Add it back to pending list
-                        _this.downloaded_len -= _this.blocks_downloaded[id];
-                        _this.blocks_downloaded[id] = 0;
+                        // Remove the downloaded length of this block from the total
+                        _this.downloaded_len -= downloaded_len;
+                        // Update the progress
                         _this.print_progress();
                         // Re-assign a download task
                         Either::A(_this.assign_download_task(&send_chan, worker)
@@ -233,10 +236,6 @@ impl DownloadManager {
                         Either::B(future::err("Unexpected response".into()))
                     }
                 }),
-                WorkerMessage::Progress(block_id, len) => {
-                    _this.progress(block_id, len);
-                    Either::B(Either::B(future::ok(file)))
-                },
                 _ => panic!("WTF")
             }
         }))
@@ -249,6 +248,18 @@ impl DownloadManager {
                 }
             }
         })
+    }
+
+    // A periodic task to check and update the download process
+    fn progress_task(this: Arc<Mutex<DownloadManager>>) -> impl Future<Item = (), Error = ()> {
+        tokio::timer::Interval::new_interval(Duration::from_millis(TIME_SLICE_MS))
+            .for_each(move |_| {
+                let mut _this = this.lock().unwrap();
+                let download_delta = _this.download_delta.swap(0, Ordering::Relaxed);
+                _this.progress(download_delta);
+                Ok(())
+            })
+            .map_err(|_| ())
     }
 
     // Write a downloaded block to the file
@@ -280,10 +291,7 @@ impl DownloadManager {
             !self.blocks_state.contains(&BlockState::Downloading)
     }
 
-    // Add some length to a block's known downloaded length
-    // print progress report if needed
-    fn progress(&mut self, block_id: usize, len: u64) {
-        self.blocks_downloaded[block_id] += len;
+    fn progress(&mut self, len: u64) {
         self.downloaded_len += len;
         if self.meter.add(len) {
             self.print_progress();

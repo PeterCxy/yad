@@ -6,7 +6,8 @@ use futures::sync::mpsc;
 use hyper::{self, Body, client, Client, header, Request, StatusCode, Uri};
 use hyper_rustls::HttpsConnector;
 use manager::WorkerMessage;
-use std::time::{Instant, Duration};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio;
 use util::*;
 
@@ -22,6 +23,8 @@ pub struct DownloadWorker {
     client: Client<HttpsConnector<client::HttpConnector>, Body>,
     block_size: u64,
     file_len: u64,
+    delta: Arc<AtomicU64>,
+    cur_block_delta: Arc<AtomicU64>,
     auth_header: Option<String>,
     recv_chan: Option<mpsc::Receiver<WorkerMessage>>,
     send_chan: mpsc::Sender<WorkerMessage>
@@ -30,7 +33,7 @@ pub struct DownloadWorker {
 impl DownloadWorker {
     pub fn new(
         id: usize, url: Uri, auth_header: Option<String>,
-        file_len: u64, block_size: u64,
+        file_len: u64, block_size: u64, delta: Arc<AtomicU64>,
         recv_chan: mpsc::Receiver<WorkerMessage>,
         send_chan: mpsc::Sender<WorkerMessage>
     ) -> DownloadWorker {
@@ -43,6 +46,8 @@ impl DownloadWorker {
             client,
             block_size,
             file_len,
+            delta,
+            cur_block_delta: Arc::new(AtomicU64::new(0)),
             recv_chan: Some(recv_chan),
             send_chan
         }
@@ -59,19 +64,21 @@ impl DownloadWorker {
     // request from the main thread and download per request
     fn run(mut self) -> impl Future<Item = (), Error = ()> {
         use std::mem::replace;
+        let cur_block_delta = self.cur_block_delta.clone();
         replace(&mut self.recv_chan, None).unwrap().for_each(move |message| {
             if let WorkerMessage::Download(block_id) = message {
                 // We have been requested to download a block
                 let send_chan = self.send_chan.clone();
                 let worker_id = self.id;
                 self.download_block(block_id)
-                    .then(move |result| {
+                    .then(clone!(cur_block_delta; |result| {
+                        let delta = cur_block_delta.swap(0, Ordering::Relaxed);
                         // Pass the result back to the master thread
                         match result {
                             Ok(bytes) => send_chan.send(WorkerMessage::Finished(worker_id, block_id, bytes)),
-                            Err(e) => send_chan.send(WorkerMessage::Failed(worker_id, block_id, e))
+                            Err(e) => send_chan.send(WorkerMessage::Failed(worker_id, block_id, delta, e))
                         }
-                    })
+                    }))
                     .map_err(|_| ())
                     // The result is the channel itself, it's just a clone
                     .map(|_| ())
@@ -100,10 +107,9 @@ impl DownloadWorker {
             .add_auth_header(&self.auth_header)
             .body(Body::empty()).unwrap();
 
-        let send_chan = self.send_chan.clone();
         let v = BytesMut::with_capacity(self.block_size as usize);
-        let mut last_instant = Instant::now();
-        let mut delta = 0;
+        let delta = self.delta.clone();
+        let cur_block_delta = self.cur_block_delta.clone();
 
         self.client.request(req)
             .map_err(|e| WorkerError::ConnectionError(e))
@@ -116,26 +122,13 @@ impl DownloadWorker {
                     // Collect the body for this block
                     Either::B(response.into_body()
                         .map_err(|e| WorkerError::ConnectionError(e))
-                        .and_then(move |chunk| {
-                            delta += chunk.len() as u64;
-                            let now = Instant::now();
-
-                            if now.duration_since(last_instant) >= Duration::from_millis(50) {
-                                // Limit the rate of progress reports to the controller
-                                // This brings the possibility that there might still be
-                                // remaining unreported progress when this finishes,
-                                // thus needs the controller to remember to check the progress
-                                // when finish.
-                                last_instant = now;
-                                let delta = ::std::mem::replace(&mut delta, 0);
-                                Either::A(send_chan.clone().send(WorkerMessage::Progress(block_id, delta))
-                                    .map(move |_| chunk)
-                                    .map_err(|e| panic!("Unexpected error {:?}", e)))
-                            } else {
-                                Either::B(future::ok(chunk))
-                            }
-                        })
                         .fold(v, move |mut v, chunk| {
+                            // Record the newly downloaded chunk length
+                            let len = chunk.len() as u64;
+                            delta.fetch_add(len, Ordering::Relaxed);
+                            cur_block_delta.fetch_add(len, Ordering::Relaxed);
+
+                            // Accumulate into the buffer
                             v.extend_from_slice(&chunk);
                             future::ok(v)
                         })
